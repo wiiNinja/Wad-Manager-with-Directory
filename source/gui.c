@@ -6,9 +6,9 @@
 
 /* Constants */
 #define CONSOLE_XCOORD		48
-#define CONSOLE_YCOORD		118
+#define CONSOLE_YCOORD		94
 #define CONSOLE_WIDTH		544
-#define CONSOLE_HEIGHT		236
+#define CONSOLE_HEIGHT		336
 
 
 s32 __Gui_DrawPng(void *img, u32 x, u32 y)

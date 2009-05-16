@@ -3,11 +3,13 @@
 
 #include "sys.h"
 #include "wpad.h"
-
+#include "video.h"
 
 void Restart(void)
 {
-	printf("\n    Restarting Wii...");
+	Con_Clear();
+
+	printf("\n\n\n\n\n\n\n\n\n\n                               bye...");
 	fflush(stdout);
 
 	/* Load system menu */
@@ -23,11 +25,5 @@ void Restart_Wait(void)
 
 	/* Wait for button */
 	Wpad_WaitButtons();
-
-	printf(" Restarting Wii...");
-	fflush(stdout);
-
-	/* Load system menu */
-	Sys_LoadMenu();
+	Restart();
 }
- 

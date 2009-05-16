@@ -10,6 +10,7 @@
 #include "video.h"
 #include "wpad.h"
 
+extern u32 WaitButtons (void);
 
 void Disclaimer(void)
 {
@@ -26,7 +27,7 @@ void Disclaimer(void)
 
 	/* Wait for user answer */
 	for (;;) {
-		u32 buttons = Wpad_WaitButtons();
+		u32 buttons = WaitButtons();
 
 		/* A button */
 		if (buttons & WPAD_BUTTON_A)
@@ -40,6 +41,8 @@ void Disclaimer(void)
 
 int main(int argc, char **argv)
 {
+    //int retval = 0;
+
 	/* Initialize subsystems */
 	Sys_Init();
 
@@ -54,6 +57,7 @@ int main(int argc, char **argv)
 
 	/* Initialize Wiimote */
 	Wpad_Init();
+    PAD_Init();
 
 	/* Print disclaimer */
 	Disclaimer();
