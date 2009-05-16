@@ -1,0 +1,6 @@
+
+2009-05-09: Original version from Waninkoko's v1.4
+
+2009-05-09: mod1 - With folders support
+
+2009-05-13: mod2 - When entering a subfolder, the cursor will be at the top of the page.
