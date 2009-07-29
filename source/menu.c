@@ -5,6 +5,7 @@
 #include <ogcsys.h>
 
 #include "fat.h"
+#include "nand.h"
 #include "restart.h"
 #include "title.h"
 #include "usbstorage.h"
@@ -12,29 +13,32 @@
 #include "video.h"
 #include "wad.h"
 #include "wpad.h"
+#include <ogc/pad.h>
+#include "globals.h"
 
-/* Constants */
-#define CIOS_VERSION		249
-#define ENTRIES_PER_PAGE	16
-#define MAX_FILE_PATH_LEN	1024
-#define MAX_DIR_LEVELS		10
-#define WAD_DIRECTORY		"/"
-#define WAD_ROOT_DIRECTORY  "/wad"
 
-/* Device list variables */
-static fatDevice deviceList[] = 
-{
-	{ "sd",		"Wii SD Slot",					&__io_wiisd },
+
+/* FAT device list  */
+//static fatDevice fdevList[] = {
+fatDevice fdevList[] = {
+	{ "sd",		"Wii SD Slot",			&__io_wiisd },
+	{ "usb",	"USB Mass Storage Device",	&__io_usbstorage },
 	{ "usb2",	"USB 2.0 Mass Storage Device",	&__io_usb2storage },
-	{ "usb",	"USB 1.1 Mass Storage Device",	&__io_usbstorage },
-	{ "gcsda",	"SD Gecko (Slot A)",			&__io_gcsda },
-	{ "gcsdb",	"SD Gecko (Slot B)",			&__io_gcsdb },
+	{ "gcsda",	"SD Gecko (Slot A)",		&__io_gcsda },
+	{ "gcsdb",	"SD Gecko (Slot B)",		&__io_gcsdb },
+};
+
+/* NAND device list */
+static nandDevice ndevList[] = {
+	{ "Disable",				0,	0x00,	0x00 },
+	{ "SD/SDHC Card",			1,	0xF0,	0xF1 },
+	{ "USB 2.0 Mass Storage Device",	2,	0xF2,	0xF3 },
 };
 
 
-/* Variables */
-static s32 device = 0;
-static s32 iosSelected = -1;
+/* FAT device */
+static fatDevice  *fdev = NULL;
+static nandDevice *ndev = NULL;
 
 // wiiNinja: Define a buffer holding the previous path names as user
 // traverses the directory tree. Max of 10 levels is define at this point
@@ -44,7 +48,8 @@ static s32  gSeleted[MAX_DIR_LEVELS];
 static s32  gStart[MAX_DIR_LEVELS];
 
 /* Macros */
-#define NB_DEVICES		(sizeof(deviceList) / sizeof(fatDevice))
+#define NB_FAT_DEVICES		(sizeof(fdevList) / sizeof(fatDevice))
+#define NB_NAND_DEVICES		(sizeof(ndevList) / sizeof(nandDevice))
 
 
 // Local prototypes: wiiNinja
@@ -68,6 +73,7 @@ s32 __Menu_IsGreater(const void *p1, const void *p2)
 	return (n1 > n2) ? 1 : -1;
 }
 
+
 s32 __Menu_EntryCmp(const void *p1, const void *p2)
 {
 	fatFile *f1 = (fatFile *)p1;
@@ -90,11 +96,11 @@ s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
 
 	struct stat filestat;
 
-	//char dirpath[128], filename[1024]; // wiiNinja: potential stack problem
+	//char dirpath[256], filename[768];
 	u32  cnt;
 
 	/* Generate dirpath */
-	//sprintf(gDirPath, "%s:" WAD_DIRECTORY, deviceList[device].mount); // wiiNinja: Now passed in as an argument
+	//sprintf(dirpath, "%s:" WAD_DIRECTORY, fdev->mount);
 
 	/* Open directory */
 	dir = diropen(inPath);
@@ -103,7 +109,7 @@ s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
 
 	/* Count entries */
 	for (cnt = 0; !dirnext(dir, gFileName, &filestat);) {
-		//if (!(filestat.st_mode & S_IFDIR)) // wiiNinja
+		// if (!(filestat.st_mode & S_IFDIR)) // wiiNinja
 			cnt++;
 	}
 
@@ -120,9 +126,9 @@ s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
 
 		/* Get entries */
 		for (cnt = 0; !dirnext(dir, gFileName, &filestat);)
-        {
-            bool addFlag = false;
-
+		{
+			bool addFlag = false;
+			
 			if (filestat.st_mode & S_IFDIR)  // wiiNinja
             {
                 // Add only the item ".." which is the previous directory
@@ -167,17 +173,15 @@ s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
 	return 0;
 }
 
-void Menu_Device(void)
-{
-	fatDevice *dev = NULL;
 
-	s32 ret;
-	u32 i, cnt;
+void Menu_SelectIOS(void)
+{
 	u8 *iosVersion = NULL;
 	u32 iosCnt;
 
-    while (1)
-    {
+	u32 cnt;
+	s32 ret, selected = 0;
+
 	/* Get IOS versions */
 	ret = Title_GetIOSVersions(&iosVersion, &iosCnt);
 	if (ret < 0)
@@ -187,84 +191,42 @@ void Menu_Device(void)
 	qsort(iosVersion, iosCnt, sizeof(u8), __Menu_IsGreater);
 
 	/* Set default version */
-	// first: check if CIOS avaialbe and make it default
-	if(iosSelected<0)
-	{
-		for (cnt = 0; cnt < iosCnt; cnt++) 
-		{
-			u8 version = iosVersion[cnt];
+	for (cnt = 0; cnt < iosCnt; cnt++) {
+		u8 version = iosVersion[cnt];
 
-			/* Custom IOS available */
-			if(version == CIOS_VERSION) 
-			{
-				iosSelected = cnt;
-				break;
-			}
+		/* Custom IOS available */
+		if (version == CIOS_VERSION) {
+			selected = cnt;
+			break;
 		}
+
+		/* Current IOS */
+		if (version == IOS_GetVersion())
+			selected = cnt;
 	}
 
-	// if CIOS is not found then make current IOS as default
-	if(iosSelected<0)
-	{
-		for (cnt = 0; cnt < iosCnt; cnt++) 
-		{
-			u8 version = iosVersion[cnt];
-
-			/* Custom IOS available */
-			if(version == IOS_GetVersion()) 
-			{
-				iosSelected = cnt;
-				break;
-			}
-		}
-	}
-
-	// if somehow we failed then make first found IOS as default
-	if(iosSelected<0) iosSelected = 0;
-
-	/* Select source device */
+	/* Ask user for IOS version */
 	for (;;) {
 		/* Clear console */
 		Con_Clear();
 
-		/* Selected device */
-		dev = &deviceList[device];
+		printf("\t>> Select IOS version to use: < IOS%d >\n\n", iosVersion[selected]);
 
-		printf("\n[+] Selected IOS version: < IOS%d >\n\n\n\n", iosVersion[iosSelected]);
+		printf("\t   Press LEFT/RIGHT to change IOS version.\n\n");
 
-		for(i=0;i<sizeof(deviceList)/sizeof(deviceList[0]);i++)
-		{
-			printf("\t%s %s\n", (device == i) ? ">>" : "  ", deviceList[i].name);
-		}
+		printf("\t   Press A button to continue.\n");
+		printf("\t   Press HOME button to restart.\n\n");
 
-		printf("\n\n\n");
-		printf("[+] Press LEFT/RIGHT to change IOS version\n");
-		printf("    Press UP/DOWN to change the selected device\n");
-		printf("    Press HOME button to exit\n");
-		printf("    Press A button to select and continue\n");
-
-        u32 buttons = WaitButtons();
+		u32 buttons = WaitButtons();
 
 		/* LEFT/RIGHT buttons */
-		if (buttons & WPAD_BUTTON_UP) 
-		{
-			if ((--device) <= -1)
-				device = (NB_DEVICES - 1);
-		}
-		
-		if (buttons & WPAD_BUTTON_DOWN) 
-		{
-			if ((++device) >= NB_DEVICES)
-				device = 0;
-		}
-
 		if (buttons & WPAD_BUTTON_LEFT) {
-			if ((--iosSelected) <= -1)
-				iosSelected = (iosCnt - 1);
+			if ((--selected) <= -1)
+				selected = (iosCnt - 1);
 		}
 		if (buttons & WPAD_BUTTON_RIGHT) {
-			if ((++iosSelected) >= iosCnt)
-				iosSelected = 0;
+			if ((++selected) >= iosCnt)
+				selected = 0;
 		}
 
 		/* HOME button */
@@ -276,14 +238,10 @@ void Menu_Device(void)
 			break;
 	}
 
-	/* Mount device */
-	printf("\n[+] Mounting device, please wait...");
-	fflush(stdout);
 
-	u8 version = iosVersion[iosSelected];
+	u8 version = iosVersion[selected];
 
-	if (IOS_GetVersion() != version) 
-	{
+	if (IOS_GetVersion() != version) {
 		/* Shutdown subsystems */
 		Wpad_Disconnect();
 
@@ -292,9 +250,58 @@ void Menu_Device(void)
 
 		/* Initialize subsystems */
 		Wpad_Init();
-    }
-	/* Mount device */
-	ret = Fat_Mount(dev);
+	}
+}
+
+void Menu_FatDevice(void)
+{
+	s32 ret, selected = 0;
+
+	/* Unmount FAT device */
+	if (fdev)
+		Fat_Unmount(fdev);
+
+	/* Select source device */
+	for (;;) {
+		/* Clear console */
+		Con_Clear();
+
+		/* Selected device */
+		fdev = &fdevList[selected];
+
+		printf("\t>> Select source device: < %s >\n\n", fdev->name);
+
+		printf("\t   Press LEFT/RIGHT to change the selected device.\n\n");
+
+		printf("\t   Press A button to continue.\n");
+		printf("\t   Press HOME button to restart.\n\n");
+
+		u32 buttons = WaitButtons();
+
+		/* LEFT/RIGHT buttons */
+		if (buttons & WPAD_BUTTON_LEFT) {
+			if ((--selected) <= -1)
+				selected = (NB_FAT_DEVICES - 1);
+		}
+		if (buttons & WPAD_BUTTON_RIGHT) {
+			if ((++selected) >= NB_FAT_DEVICES)
+				selected = 0;
+		}
+
+		/* HOME button */
+		if (buttons & WPAD_BUTTON_HOME)
+			Restart();
+
+		/* A button */
+		if (buttons & WPAD_BUTTON_A)
+			break;
+	}
+
+	printf("[+] Mounting device, please wait...");
+	fflush(stdout);
+
+	/* Mount FAT device */
+	ret = Fat_Mount(fdev);
 	if (ret < 0) {
 		printf(" ERROR! (ret = %d)\n", ret);
 		goto err;
@@ -304,24 +311,101 @@ void Menu_Device(void)
 	return;
 
 err:
-	/* Unmount device */
-	Fat_Unmount();
+	printf("\n");
+	printf("    Press any button to continue...\n");
 
-	printf("    Press any button to continue...");
+	WaitButtons();
 
-    WaitButtons();
-
-    }
 	/* Prompt menu again */
-	//Menu_Device();
+	Menu_FatDevice();
+}
+
+void Menu_NandDevice(void)
+{
+	s32 ret, selected = 0;
+
+	/* Disable NAND emulator */
+	if (ndev) {
+		Nand_Unmount(ndev);
+		Nand_Disable();
+	}
+
+	/* Select source device */
+	for (;;) {
+		/* Clear console */
+		Con_Clear();
+
+		/* Selected device */
+		ndev = &ndevList[selected];
+
+		printf("\t>> Select NAND emulator device: < %s >\n\n", ndev->name);
+
+		printf("\t   Press LEFT/RIGHT to change the selected device.\n\n");
+
+		printf("\t   Press A button to continue.\n");
+		printf("\t   Press HOME button to restart.\n\n");
+
+		u32 buttons = WaitButtons();
+
+		/* LEFT/RIGHT buttons */
+		if (buttons & WPAD_BUTTON_LEFT) {
+			if ((--selected) <= -1)
+				selected = (NB_NAND_DEVICES - 1);
+		}
+		if (buttons & WPAD_BUTTON_RIGHT) {
+			if ((++selected) >= NB_NAND_DEVICES)
+				selected = 0;
+		}
+
+		/* HOME button */
+		if (buttons & WPAD_BUTTON_HOME)
+			Restart();
+
+		/* A button */
+		if (buttons & WPAD_BUTTON_A)
+			break;
+	}
+
+	/* No NAND device */
+	if (!ndev->mode)
+		return;
+
+	printf("[+] Enabling NAND emulator...");
+	fflush(stdout);
+
+	/* Mount NAND device */
+	ret = Nand_Mount(ndev);
+	if (ret < 0) {
+		printf(" ERROR! (ret = %d)\n", ret);
+		goto err;
+	}
+
+	/* Enable NAND emulator */
+	ret = Nand_Enable(ndev);
+	if (ret < 0) {
+		printf(" ERROR! (ret = %d)\n", ret);
+		goto err;
+	} else
+		printf(" OK!\n");
+
+	return;
+
+err:
+	printf("\n");
+	printf("    Press any button to continue...\n");
+
+	WaitButtons();
+
+	/* Prompt menu again */
+	Menu_NandDevice();
 }
 
 char gTmpFilePath[MAX_FILE_PATH_LEN];
 void Menu_WadManage(fatFile *file, char *inFilePath)
 {
-    //	fatDevice *dev = &deviceList[device]; // wiiNinja
-	FILE      *fp  = NULL;
+	FILE *fp  = NULL;
 
+	//char filepath[128];
 	f32  filesize;
 
 	u32  mode = 0;
@@ -337,14 +421,14 @@ void Menu_WadManage(fatFile *file, char *inFilePath)
 		printf("    WAD Filesize : %.2f MB\n\n\n", filesize);
 
 
-		printf("[+] Select action: < %s WAD >\n\n",  (!mode) ? "Install" : "Uninstall");
+		printf("[+] Select action: < %s WAD >\n\n", (!mode) ? "Install" : "Uninstall");
 
 		printf("    Press LEFT/RIGHT to change selected action.\n\n");
 
 		printf("    Press A to continue.\n");
 		printf("    Press B to go back to the menu.\n\n");
 
-        u32 buttons = WaitButtons();
+		u32 buttons = WaitButtons();
 
 		/* LEFT/RIGHT buttons */
 		if (buttons & (WPAD_BUTTON_LEFT | WPAD_BUTTON_RIGHT))
@@ -366,7 +450,7 @@ void Menu_WadManage(fatFile *file, char *inFilePath)
 	fflush(stdout);
 
 	/* Generate filepath */
-	//sprintf(gTmpFilePath, "%s:" WAD_DIRECTORY "/%s", dev->mount, file->filename);
+	// sprintf(filepath, "%s:" WAD_DIRECTORY "/%s", fdev->mount, file->filename);
 	sprintf(gTmpFilePath, "%s/%s", inFilePath, file->filename); // wiiNinja
 
 	/* Open WAD */
@@ -394,12 +478,12 @@ out:
 	printf("    Press any button to continue...\n");
 
 	/* Wait for button */
-    WaitButtons();
+	WaitButtons();
 }
 
 void Menu_WadList(void)
 {
-	char str[100];
+	char str [100];
 	fatFile *fileList = NULL;
 	u32      fileCnt;
 	s32 ret, selected = 0, start = 0;
@@ -408,22 +492,38 @@ void Menu_WadList(void)
     // wiiNinja: check for malloc error
     if (tmpPath == NULL)
     {
-        ret = -999;
+        ret = -999; // What am I gonna use here?
 		printf(" ERROR! Out of memory (ret = %d)\n", ret);
         return;
     }
 
 	printf("[+] Retrieving file list...");
 	fflush(stdout);
+	
+	gDirLevel = 0;
 
-    gDirLevel = 0;  // wiiNinja
-
-	sprintf(tmpPath, "%s:" WAD_DIRECTORY, deviceList[device].mount);
-    PushCurrentDir(tmpPath,0,0); // wiiNinja
-	if (strcmp (WAD_DIRECTORY, WAD_ROOT_DIRECTORY) != 0)
+    // wiiNinja: The root is always the primary folder
+    // But if the user has a /wad directory, just go there. This makes
+    // both sides of the argument win
+	sprintf(tmpPath, "%s:" WAD_DIRECTORY, fdev->mount);
+    PushCurrentDir(tmpPath,0,0);
+	//if (strcmp (WAD_DIRECTORY, WAD_ROOT_DIRECTORY) != 0)
+	if (strcmp (WAD_DIRECTORY, gConfig.startupPath) != 0)
 	{
-		sprintf(tmpPath, "%s:" WAD_ROOT_DIRECTORY, deviceList[device].mount);
-		PushCurrentDir(tmpPath,0,0); // wiiNinja
+        // If the directory can be successfully opened, it must exists
+        //DIR_ITER *tmpDirPtr = NULL;
+        //tmpDirPtr = diropen(WAD_ROOT_DIRECTORY);
+        //if (tmpDirPtr)
+        //{
+		//	dirclose (tmpDirPtr);
+
+            // Now push the /wad directory as the current operating folder
+            //sprintf(tmpPath, "%s:" WAD_ROOT_DIRECTORY, fdev->mount);
+			sprintf(tmpPath, "%s:%s", fdev->mount, gConfig.startupPath);
+			//printf ("\nThe final startupPath is: %s\n", tmpPath);
+			//WaitButtons ();
+            PushCurrentDir(tmpPath,0,0); // wiiNinja
+        //}
 	}
 
 	/* Retrieve filelist */
@@ -446,7 +546,8 @@ getList:
 		goto err;
 	}
 
-	for (;;) {
+	for (;;) 
+	{
 		u32 cnt;
 		s32 index;
 
@@ -454,16 +555,17 @@ getList:
 		Con_Clear();
 
 		/** Print entries **/
-
 		cnt = strlen(tmpPath);
-		if(cnt>30) index = cnt-30;
-			else index = 0;
+		if(cnt>30)
+			index = cnt-30;
+		else
+			index = 0;
 
-		printf("[+] Available WAD files on [%s]:\n\n", tmpPath+index);
+		printf("[+] WAD files on [%s]:\n\n", tmpPath+index);
 
 		/* Print entries */
-		for (cnt = start; cnt < fileCnt; cnt++)
-        {
+		for (cnt = start; cnt < fileCnt; cnt++) 
+		{
 			fatFile *file     = &fileList[cnt];
 			f32      filesize = file->filestat.st_size / MB_SIZE;
 
@@ -475,25 +577,21 @@ getList:
 			str[48]=0;
 
 			/* Print filename */
+			//printf("\t%2s %s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", file->filename, filesize);
             if (file->filestat.st_mode & S_IFDIR) // wiiNinja
-			{
 				printf("\t%2s [%s]\n", (cnt == selected) ? ">>" : "  ", str);
-			}
             else
                 printf("\t%2s %s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", str, filesize);
+
 		}
 
 		printf("\n");
 
-		printf("[+] Press A button to (un)install a WAD file\n");
+		printf("[+] Press A button to (un)install a WAD file.\n");
 		if(gDirLevel>1)
-		{
 			printf("    Press B button to go up-level DIR");
-		}
 		else
-		{
 			printf("    Press B button to select a storage device");
-		}
 
 		/** Controls **/
 		u32 buttons = WaitButtons();
@@ -518,7 +616,7 @@ getList:
 
 		/* A button */
 		if (buttons & WPAD_BUTTON_A)
-        {
+		{
 			fatFile *tmpFile = &fileList[selected];
             char *tmpCurPath;
             if (tmpFile->filestat.st_mode & S_IFDIR) // wiiNinja
@@ -531,10 +629,8 @@ getList:
 					// Previous dir
                     tmpCurPath = PopCurrentDir(&selected, &start);
                     if (tmpCurPath != NULL)
-                    {
                         sprintf(tmpPath, "%s", tmpCurPath);
-                        //printf ("\nEntering UP directory %s\n", tmpPath);
-                    }
+						
                     goto getList;
                 }
                 else if (IsListFull () == true)
@@ -547,14 +643,9 @@ getList:
                     if (tmpCurPath != NULL)
                     {
 						if(gDirLevel>1)
-						{
 							sprintf(tmpPath, "%s/%s", tmpCurPath, tmpFile->filename);
-						}
 						else
-						{
 							sprintf(tmpPath, "%s%s", tmpCurPath, tmpFile->filename);
-						}
-                        //printf ("\nEntering DOWN directory %s\n", tmpPath);
                     }
                     // wiiNinja: Need to PopCurrentDir
                     PushCurrentDir (tmpPath, selected, start);
@@ -567,10 +658,9 @@ getList:
             {
                 tmpCurPath = PeekCurrentDir ();
                 if (tmpCurPath != NULL)
-                    //Menu_WadManage(&fileList[selected]);
                     Menu_WadManage(tmpFile, tmpCurPath);
             }
-        }
+		}
 
 		/* B button */
 		if (buttons & WPAD_BUTTON_B)
@@ -586,10 +676,9 @@ getList:
 			// Previous dir
 			tmpCurPath = PopCurrentDir(&selected, &start);
 			if (tmpCurPath != NULL)
-			{
 				sprintf(tmpPath, "%s", tmpCurPath);
-			}
 			goto getList;
+			//return;
 		}
 
 		/** Scrolling **/
@@ -606,8 +695,8 @@ err:
 	printf("\n");
 	printf("    Press any button to continue...\n");
 
-    free (tmpPath);
-
+	free (tmpPath);
+	
 	/* Wait for button */
 	WaitButtons();
 }
@@ -615,12 +704,21 @@ err:
 
 void Menu_Loop(void)
 {
+	u8 iosVersion;
+
 	/* Select IOS menu */
-	//Menu_SelectIOS();
+	Menu_SelectIOS();
+
+	/* Retrieve IOS version */
+	iosVersion = IOS_GetVersion();
+
+	/* NAND device menu */
+	if (iosVersion == CIOS_VERSION)
+		Menu_NandDevice();
 
 	for (;;) {
-		/* Device menu */
-		Menu_Device();
+		/* FAT device menu */
+		Menu_FatDevice();
 
 		/* WAD list menu */
 		Menu_WadList();
@@ -766,5 +864,5 @@ u32 WaitButtons(void)
     }
 
 	return buttons;
-}
+} // WaitButtons
 

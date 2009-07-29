@@ -1,16 +1,20 @@
 #include <stdio.h>
 #include <ogcsys.h>
 
+#include "nand.h"
 #include "sys.h"
 #include "wpad.h"
 #include "video.h"
 
+
 void Restart(void)
 {
-	Con_Clear();
-
-	printf("\n\n\n\n\n\n\n\n\n\n                               bye...");
+	Con_Clear ();
+	printf("\n    Restarting Wii...");
 	fflush(stdout);
+
+	/* Disable NAND emulator */
+	Nand_Disable();
 
 	/* Load system menu */
 	Sys_LoadMenu();
@@ -25,5 +29,8 @@ void Restart_Wait(void)
 
 	/* Wait for button */
 	Wpad_WaitButtons();
+
+	/* Restart */
 	Restart();
 }
+ 

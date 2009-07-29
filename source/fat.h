@@ -34,7 +34,7 @@ typedef struct {
 
 /* Prototypes */
 s32   Fat_Mount(fatDevice *);
-void  Fat_Unmount();
+void  Fat_Unmount(fatDevice *);
 char *Fat_ToFilename(const char *);
 
 #endif

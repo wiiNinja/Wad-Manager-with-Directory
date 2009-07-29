@@ -32,10 +32,10 @@ distribution.
 #include <string.h>
 
 /* IOCTL commands */
-#define UMS_BASE					(('U'<<24)|('M'<<16)|('S'<<8))
+#define UMS_BASE			(('U'<<24)|('M'<<16)|('S'<<8))
 #define USB_IOCTL_UMS_INIT	        (UMS_BASE+0x1)
-#define USB_IOCTL_UMS_GET_CAPACITY	(UMS_BASE+0x2)
-#define USB_IOCTL_UMS_READ_SECTORS	(UMS_BASE+0x3)
+#define USB_IOCTL_UMS_GET_CAPACITY      (UMS_BASE+0x2)
+#define USB_IOCTL_UMS_READ_SECTORS      (UMS_BASE+0x3)
 #define USB_IOCTL_UMS_WRITE_SECTORS	(UMS_BASE+0x4)
 #define USB_IOCTL_UMS_READ_STRESS	(UMS_BASE+0x5)
 #define USB_IOCTL_UMS_SET_VERBOSE	(UMS_BASE+0x6)
