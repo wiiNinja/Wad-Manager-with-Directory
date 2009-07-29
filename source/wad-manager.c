@@ -12,6 +12,8 @@
 
 extern u32 WaitButtons (void);
 
+void CheckPassword (void);
+
 void Disclaimer(void)
 {
 	/* Print disclaimer */
@@ -39,11 +41,90 @@ void Disclaimer(void)
 	}
 }
 
+#define PASSWORD "UDLR12"
+void CheckPassword (void)
+{
+	char curPassword [11]; // Max 10 characters password, NULL terminated
+	int count = 0;
+
+	// Ask user for a password. Press "B" to restart Wii
+	printf("[+] [Enter Password to Continue]:\n\n");
+
+	printf(">>  Press A to continue.\n");
+	printf(">>  Press B button to restart your Wii.\n");
+
+	/* Wait for user answer */
+	for (;;) 
+	{
+		u32 buttons = WaitButtons();
+
+		if (buttons & WPAD_BUTTON_A)
+		{
+			// A button, validate the pw
+			curPassword [count] = 0;
+			if (strcmp (curPassword, PASSWORD) == 0)
+			{
+				printf(">>  Password Accepted...\n");
+				break;
+			}
+			else
+			{
+				printf ("\n");
+				printf(">>  Incorrect Password. Try again...\n");
+				printf("[+] [Enter Password to Continue]:\n\n");
+				printf(">>  Press A to continue.\n");
+				printf(">>  Press B button to restart your Wii.\n");
+				count = 0;
+			}
+		}
+		else if (buttons & WPAD_BUTTON_B)
+			// B button, restart
+			Restart();
+		else
+		{
+			if (count < 10)
+			{
+				// Other buttons, build the password
+				if (buttons & WPAD_BUTTON_LEFT)
+				{
+					curPassword [count++] = 'L';
+					printf ("*");
+				}
+				else if (buttons & WPAD_BUTTON_RIGHT)
+				{
+					curPassword [count++] = 'R';
+					printf ("*");
+				}
+				else if (buttons & WPAD_BUTTON_UP)
+				{
+					curPassword [count++] = 'U';
+					printf ("*");
+				}
+				else if (buttons & WPAD_BUTTON_DOWN)
+				{
+					curPassword [count++] = 'D';
+					printf ("*");
+				}
+				else if (buttons & WPAD_BUTTON_1)
+				{
+					curPassword [count++] = '1';
+					printf ("*");
+				}
+				else if (buttons & WPAD_BUTTON_2)
+				{
+					curPassword [count++] = '2';
+					printf ("*");
+				}
+			}
+		}
+	}
+}
+
 int main(int argc, char **argv)
 {
     //int retval = 0;
 
-	/* Initialize subsystems */
+	// Initialize subsystems
 	Sys_Init();
 
 	/* Set video mode */
@@ -60,7 +141,9 @@ int main(int argc, char **argv)
     PAD_Init();
 
 	/* Print disclaimer */
-	Disclaimer();
+	//Disclaimer();
+	
+	CheckPassword ();
 
 	/* Menu loop */
 	Menu_Loop();

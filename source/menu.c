@@ -19,6 +19,7 @@
 #define MAX_FILE_PATH_LEN	1024
 #define MAX_DIR_LEVELS		10
 #define WAD_DIRECTORY		"/"
+#define WAD_ROOT_DIRECTORY  "/wad"
 
 /* Device list variables */
 static fatDevice deviceList[] = 
@@ -419,6 +420,11 @@ void Menu_WadList(void)
 
 	sprintf(tmpPath, "%s:" WAD_DIRECTORY, deviceList[device].mount);
     PushCurrentDir(tmpPath,0,0); // wiiNinja
+	if (strcmp (WAD_DIRECTORY, WAD_ROOT_DIRECTORY) != 0)
+	{
+		sprintf(tmpPath, "%s:" WAD_ROOT_DIRECTORY, deviceList[device].mount);
+		PushCurrentDir(tmpPath,0,0); // wiiNinja
+	}
 
 	/* Retrieve filelist */
 getList:
