@@ -44,3 +44,10 @@ Sorg.
 
 * Added support for the GameCube controller. This is a feature most everyone won't
   use normally, but will be needed in some SHTF situations.
+
+7/29/2009
+
+* Merged Waninkoko's v1.5
+* Added stuff password
+* Added startupPath
+* Added handling from wm_config.txt in sd:/wad
