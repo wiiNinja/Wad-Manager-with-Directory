@@ -1,0 +1,17 @@
+;Config file format
+;
+;No spaces precedes the keyword on a line
+;
+Password=UDLRUD
+
+; StartupPath: 
+StartupPath=/wad
+
+; cIOS: 249,
+cIOS=249
+
+; FatDevice can be sd, usb usb2 gcsda gcsdb
+FatDevice=sd
+
+; NANDDevice: Disable SD USB
+NANDDevice: Disable
