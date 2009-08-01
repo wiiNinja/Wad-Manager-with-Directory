@@ -1,6 +1,19 @@
 ;Config file format
 ;
-;No spaces precedes the keyword on a line
+; wm_config.txt resides in sd:/wad, and it is optional. You will get all the 
+;               prompts if you don't have this file.
+; The param keywords are case-sensitive at this point.
+; No spaces precede the keyword on a line
+; If you don't have a password in the config file, the default is no password
+; If you don't have a startupPath, the default is /wad
+; If you don't have any of the other parameters, it will prompt you for it
+; To bypass any of the params, just comment out the line using a ";" at the beginning of the line
+; Blank lines are ignored.
+;
+; Password=your_password (LRUD only, where L=left, R=right, U=up, D=down on the
+;                 WiiMote or GC Controller, max 10 characters)
+; StartupPath=startupPath (starting at the root dir "/"). Be sure that the path exists, 
+;             else you will get an error.
 ;
 Password=UDLRUD
 
