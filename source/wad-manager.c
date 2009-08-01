@@ -4,8 +4,8 @@
 #include <ogcsys.h>
 #include <malloc.h>
 #include <ctype.h>
+#include <wiilight.h>
 
-#include "globals.h"
 #include "gui.h"
 #include "menu.h"
 #include "restart.h"
@@ -13,6 +13,8 @@
 #include "video.h"
 #include "wpad.h"
 #include "fat.h"
+#include "nand.h"
+#include "globals.h"
 
 // Globals
 CONFIG gConfig;
@@ -22,8 +24,9 @@ extern u32 WaitButtons (void);
 void CheckPassword (void);
 void SetDefaultConfig (void);
 int ReadConfigFile (char *configFilePath);
-int GetPassword (char *retPassword, char *inputStr);
+int GetIntParam (char *inputStr);
 int GetStartupPath (char *startupPath, char *inputStr);
+int GetStringParam (char *outParam, char *inputStr, int maxChars);
 
 // Default password Up-Down-Left-Right-Up-Down
 //#define PASSWORD "UDLRUD"
@@ -154,6 +157,7 @@ int main(int argc, char **argv)
 	/* Initialize Wiimote and GC Controller */
 	Wpad_Init();
 	PAD_Init ();
+	WIILIGHT_Init();
 
 	/* Print disclaimer */
 	//Disclaimer();
@@ -176,13 +180,14 @@ int main(int argc, char **argv)
 	return 0;
 }
 
-extern fatDevice fdevList[];
 
 int ReadConfigFile (char *configFilePath)
 {
     int retval = 0;
 	FILE *fptr;
 	char *tmpStr = malloc (MAX_FILE_PATH_LEN);
+	char tmpOutStr [40];
+	int i;
 
 	if (tmpStr == NULL)
 		return (-1);
@@ -215,7 +220,16 @@ int ReadConfigFile (char *configFilePath)
 					if (strncmp (tmpStr, "Password", 8) == 0)
 					{
 						// Get password
-						GetPassword (gConfig.password, tmpStr);
+						// GetPassword (gConfig.password, tmpStr);
+						GetStringParam (gConfig.password, tmpStr, MAX_PASSWORD_LENGTH);
+						
+						// If password is too long, ignore it
+						if (strlen (gConfig.password) > 10)
+						{
+							gConfig.password [0] = 0;
+							printf ("Password longer than 10 characters; will be ignored. Press a button...\n");
+							WaitButtons ();
+						}
 					}
 				
 					// Get startup path
@@ -224,9 +238,44 @@ int ReadConfigFile (char *configFilePath)
 						// Get startup Path
 						GetStartupPath (gConfig.startupPath, tmpStr);
 					}
+					
+					// cIOS
+					else if (strncmp (tmpStr, "cIOSVersion", 11) == 0)
+					{
+						// Get cIOSVersion
+						gConfig.cIOSVersion = (u8)GetIntParam (tmpStr);
+					}
+					
+					// FatDevice
+					else if (strncmp (tmpStr, "FatDevice", 9) == 0)
+					{
+						// Get fatDevice
+						GetStringParam (tmpOutStr, tmpStr, MAX_FAT_DEVICE_LENGTH);
+						for (i = 0; i < 5; i++)
+						{
+							if (strncmp (fdevList[i].mount, tmpOutStr, 2) == 0)
+							{
+								gConfig.fatDeviceIndex = i;
+							}
+						}
+					}
+					
+					// NandDevice
+					else if (strncmp (tmpStr, "NANDDevice", 10) == 0)
+					{
+						// Get fatDevice
+						GetStringParam (tmpOutStr, tmpStr, MAX_NAND_DEVICE_LENGTH);
+						for (i = 0; i < 3; i++)
+						{
+							if (strncmp (ndevList[i].name, tmpOutStr, 2) == 0)
+							{
+								gConfig.nandDeviceIndex = i;
+							}
+						}
+					}
 				}
 			} // EndWhile
-		
+			
 			// Close the config file
 			fclose (fptr);
 		}
@@ -253,46 +302,13 @@ void SetDefaultConfig (void)
 	
 	// Default startup folder
 	strcpy (gConfig.startupPath, WAD_ROOT_DIRECTORY);
+	
+	gConfig.cIOSVersion = CIOS_VERSION_INVALID;            // Means that user has to select later
+	gConfig.fatDeviceIndex = FAT_DEVICE_INDEX_INVALID;     // Means that user has to select
+	gConfig.nandDeviceIndex = NAND_DEVICE_INDEX_INVALID;   // Means that user has to select
 
 } // SetDefaultConfig
 
-
-int GetPassword (char *retPassword, char *inputStr)
-{
-	int i = 0;
-	int len = strlen (inputStr);
-	
-	// Find the "="
-	while ((inputStr [i] != '=') && (i < len))
-	{
-		i++;
-	}
-	i++;
-	
-	// Get to the first alpha numeric
-	while ((isalpha(inputStr [i]) == 0) && (i < len))
-	{
-		i++;
-	}
-	
-	// Get the password
-	int pwCount = 0;
-	while ((isalpha(inputStr [i])) && (i < len))
-	{
-		retPassword [pwCount++] = inputStr [i++];
-	}
-	retPassword [pwCount] = 0; // NULL terminate
-
-	// If password is too long, ignore it
-	if (strlen (retPassword) > 10)
-	{
-		retPassword [0] = 0;
-		printf ("Password longer than 10 characters; will be ignored. Press a button...\n");
-		WaitButtons ();
-	}
-	
-	return (0);
-} // GetPassword
 
 int GetStartupPath (char *startupPath, char *inputStr)
 {
@@ -324,3 +340,64 @@ int GetStartupPath (char *startupPath, char *inputStr)
 	return (0);
 } // GetStartupPath
 
+int GetIntParam (char *inputStr)
+{
+	int retval = 0;
+	int i = 0;
+	int len = strlen (inputStr);
+	char outParam [40];
+	
+	// Find the "="
+	while ((inputStr [i] != '=') && (i < len))
+	{
+		i++;
+	}
+	i++;
+	
+	// Get to the first alpha numeric character
+	while ((isdigit(inputStr [i]) == 0) && (i < len))
+	{
+		i++;
+	}
+
+	// Get the string param
+	int outCount = 0;
+	while ((isdigit(inputStr [i])) && (i < len) && (outCount < 40))
+	{
+		outParam [outCount++] = inputStr [i++];
+	}
+	outParam [outCount] = 0; // NULL terminate
+	retval = atoi (outParam);
+	
+	return (retval);
+} // GetIntParam
+
+
+int GetStringParam (char *outParam, char *inputStr, int maxChars)
+{
+	int i = 0;
+	int len = strlen (inputStr);
+	
+	// Find the "="
+	while ((inputStr [i] != '=') && (i < len))
+	{
+		i++;
+	}
+	i++;
+	
+	// Get to the first alpha character
+	while ((isalpha(inputStr [i]) == 0) && (i < len))
+	{
+		i++;
+	}
+	
+	// Get the string param
+	int outCount = 0;
+	while ((isalnum(inputStr [i])) && (i < len) && (outCount < maxChars))
+	{
+		outParam [outCount++] = inputStr [i++];
+	}
+	outParam [outCount] = 0; // NULL terminate
+	
+	return (0);
+} // GetStringParam

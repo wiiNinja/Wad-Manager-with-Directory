@@ -9,15 +9,46 @@
 #define WAD_DIRECTORY		"/"
 #define WAD_ROOT_DIRECTORY  "/wad"
 
+#define MAX_PASSWORD_LENGTH  	10
+#define MAX_FAT_DEVICE_LENGTH  	10
+#define MAX_NAND_DEVICE_LENGTH  10
+
 #define WM_CONFIG_FILE_PATH "sd:/wad/wm_config.txt"
+
+
+// These are indices into the fatDevice fdevList
+#define FAT_DEVICE_INDEX_WII_SD  0
+#define FAT_DEVICE_INDXE_USB     1
+#define FAT_DEVICE_INDEX_USB2    2
+#define FAT_DEVICE_INDEX_GC_SDA  3
+#define FAT_DEVICE_INDEX_GC_SDB  4
+#define FAT_DEVICE_INDEX_INVALID -1
+
+// These are the indices into the nandDevice ndevList
+#define NAND_DEVICE_INDEX_DISABLE   0
+#define NAND_DEVICE_INDEX_SD        1
+#define NAND_DEVICE_INDEX_USB	    2
+#define NAND_DEVICE_INDEX_INVALID   -1
+
+#define CIOS_VERSION_INVALID        -1
+
+// For the WiiLight
+#define WII_LIGHT_OFF                0
+#define WII_LIGHT_ON                 1
 
 typedef struct 
 {
-	char password[11];
+	char password[MAX_PASSWORD_LENGTH];
 	char startupPath [256];
+	int cIOSVersion;
+	int fatDeviceIndex;
+	int nandDeviceIndex;
 } CONFIG;
 
 
 extern CONFIG gConfig;
+extern nandDevice ndevList[];
+extern fatDevice fdevList[];
+
 
 #endif

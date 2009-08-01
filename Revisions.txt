@@ -4,3 +4,12 @@
 2009-05-09: mod1 - With folders support
 
 2009-05-13: mod2 - When entering a subfolder, the cursor will be at the top of the page.
+
+2009-07-28: v1.5 from Waninkoko
+
+2009-07-29: v1.5.mod1 - FOlder support for v1.5
+
+2009-07-29: v1.5.mod2 - Added wm_config.txt with password and startupPath
+
+2009-07-30: v1.5.mod3 - Added to wm_config.txt: cIOS select, Wad Source path, and Nand source path
+                        Added wiilight by mariomaniac33

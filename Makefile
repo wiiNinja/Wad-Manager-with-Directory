@@ -20,7 +20,7 @@ include $(DEVKITPPC)/wii_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	$(notdir $(CURDIR))
 BUILD		:=	build
-SOURCES		:=	source source/libpng source/libpng/pngu
+SOURCES		:=	source include source/libpng source/libpng/pngu
 DATA		:=	data  
 INCLUDES	:=
 
@@ -36,7 +36,7 @@ LDFLAGS	=	$(MACHDEP) -Wl,-Map,$(notdir $@).map
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project
 #---------------------------------------------------------------------------------
-LIBS	:=	-lpng -lfat -lwiiuse -lbte -logc -lm -lz
+LIBS	:=	-lpng -lfat -lwiiuse -lbte -logc -lm -lz -lwiilight
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <malloc.h>
 #include <ogcsys.h>
+#include <wiilight.h>
 
 #include "fat.h"
 #include "nand.h"
@@ -16,8 +17,6 @@
 #include <ogc/pad.h>
 #include "globals.h"
 
-
-
 /* FAT device list  */
 //static fatDevice fdevList[] = {
 fatDevice fdevList[] = {
@@ -29,7 +28,8 @@ fatDevice fdevList[] = {
 };
 
 /* NAND device list */
-static nandDevice ndevList[] = {
+//static nandDevice ndevList[] = {
+nandDevice ndevList[] = {
 	{ "Disable",				0,	0x00,	0x00 },
 	{ "SD/SDHC Card",			1,	0xF0,	0xF1 },
 	{ "USB 2.0 Mass Storage Device",	2,	0xF2,	0xF3 },
@@ -51,7 +51,6 @@ static s32  gStart[MAX_DIR_LEVELS];
 #define NB_FAT_DEVICES		(sizeof(fdevList) / sizeof(fatDevice))
 #define NB_NAND_DEVICES		(sizeof(ndevList) / sizeof(nandDevice))
 
-
 // Local prototypes: wiiNinja
 void WaitPrompt (char *prompt);
 int PushCurrentDir(char *dirStr, s32 Selected, s32 Start);
@@ -60,6 +59,7 @@ bool IsListFull (void);
 char *PeekCurrentDir (void);
 u32 WaitButtons(void);
 u32 Pad_GetButtons(void);
+void WiiLightControl (int state);
 
 s32 __Menu_IsGreater(const void *p1, const void *p2)
 {
@@ -178,9 +178,11 @@ void Menu_SelectIOS(void)
 {
 	u8 *iosVersion = NULL;
 	u32 iosCnt;
+	u8 tmpVersion;
 
 	u32 cnt;
 	s32 ret, selected = 0;
+	bool found = false;
 
 	/* Get IOS versions */
 	ret = Title_GetIOSVersions(&iosVersion, &iosCnt);
@@ -190,13 +192,26 @@ void Menu_SelectIOS(void)
 	/* Sort list */
 	qsort(iosVersion, iosCnt, sizeof(u8), __Menu_IsGreater);
 
+	if (gConfig.cIOSVersion < 0)
+		tmpVersion = CIOS_VERSION;
+	else
+	{
+		tmpVersion = (u8)gConfig.cIOSVersion;
+		// For debugging only
+		//printf ("User pre-selected cIOS: %i\n", tmpVersion);
+		//WaitButtons();
+	}
+
 	/* Set default version */
 	for (cnt = 0; cnt < iosCnt; cnt++) {
 		u8 version = iosVersion[cnt];
 
 		/* Custom IOS available */
-		if (version == CIOS_VERSION) {
+		//if (version == CIOS_VERSION)
+		if (version == tmpVersion)
+		{
 			selected = cnt;
+			found = true;
 			break;
 		}
 
@@ -206,36 +221,40 @@ void Menu_SelectIOS(void)
 	}
 
 	/* Ask user for IOS version */
-	for (;;) {
-		/* Clear console */
-		Con_Clear();
+	if ((gConfig.cIOSVersion < 0) || (found == false))
+	{
+		for (;;)
+		{
+			/* Clear console */
+			Con_Clear();
 
-		printf("\t>> Select IOS version to use: < IOS%d >\n\n", iosVersion[selected]);
+			printf("\t>> Select IOS version to use: < IOS%d >\n\n", iosVersion[selected]);
 
-		printf("\t   Press LEFT/RIGHT to change IOS version.\n\n");
+			printf("\t   Press LEFT/RIGHT to change IOS version.\n\n");
 
-		printf("\t   Press A button to continue.\n");
-		printf("\t   Press HOME button to restart.\n\n");
+			printf("\t   Press A button to continue.\n");
+			printf("\t   Press HOME button to restart.\n\n");
 
-		u32 buttons = WaitButtons();
+			u32 buttons = WaitButtons();
 
-		/* LEFT/RIGHT buttons */
-		if (buttons & WPAD_BUTTON_LEFT) {
-			if ((--selected) <= -1)
-				selected = (iosCnt - 1);
+			/* LEFT/RIGHT buttons */
+			if (buttons & WPAD_BUTTON_LEFT) {
+				if ((--selected) <= -1)
+					selected = (iosCnt - 1);
+			}
+			if (buttons & WPAD_BUTTON_RIGHT) {
+				if ((++selected) >= iosCnt)
+					selected = 0;
+			}
+
+			/* HOME button */
+			if (buttons & WPAD_BUTTON_HOME)
+				Restart();
+
+			/* A button */
+			if (buttons & WPAD_BUTTON_A)
+				break;
 		}
-		if (buttons & WPAD_BUTTON_RIGHT) {
-			if ((++selected) >= iosCnt)
-				selected = 0;
-		}
-
-		/* HOME button */
-		if (buttons & WPAD_BUTTON_HOME)
-			Restart();
-
-		/* A button */
-		if (buttons & WPAD_BUTTON_A)
-			break;
 	}
 
 
@@ -262,39 +281,46 @@ void Menu_FatDevice(void)
 		Fat_Unmount(fdev);
 
 	/* Select source device */
-	for (;;) {
-		/* Clear console */
-		Con_Clear();
+	if (gConfig.fatDeviceIndex < 0)
+	{
+		for (;;) {
+			/* Clear console */
+			Con_Clear();
 
-		/* Selected device */
-		fdev = &fdevList[selected];
+			/* Selected device */
+			fdev = &fdevList[selected];
 
-		printf("\t>> Select source device: < %s >\n\n", fdev->name);
+			printf("\t>> Select source device: < %s >\n\n", fdev->name);
 
-		printf("\t   Press LEFT/RIGHT to change the selected device.\n\n");
+			printf("\t   Press LEFT/RIGHT to change the selected device.\n\n");
 
-		printf("\t   Press A button to continue.\n");
-		printf("\t   Press HOME button to restart.\n\n");
+			printf("\t   Press A button to continue.\n");
+			printf("\t   Press HOME button to restart.\n\n");
 
-		u32 buttons = WaitButtons();
+			u32 buttons = WaitButtons();
 
-		/* LEFT/RIGHT buttons */
-		if (buttons & WPAD_BUTTON_LEFT) {
-			if ((--selected) <= -1)
-				selected = (NB_FAT_DEVICES - 1);
+			/* LEFT/RIGHT buttons */
+			if (buttons & WPAD_BUTTON_LEFT) {
+				if ((--selected) <= -1)
+					selected = (NB_FAT_DEVICES - 1);
+			}
+			if (buttons & WPAD_BUTTON_RIGHT) {
+				if ((++selected) >= NB_FAT_DEVICES)
+					selected = 0;
+			}
+
+			/* HOME button */
+			if (buttons & WPAD_BUTTON_HOME)
+				Restart();
+
+			/* A button */
+			if (buttons & WPAD_BUTTON_A)
+				break;
 		}
-		if (buttons & WPAD_BUTTON_RIGHT) {
-			if ((++selected) >= NB_FAT_DEVICES)
-				selected = 0;
-		}
-
-		/* HOME button */
-		if (buttons & WPAD_BUTTON_HOME)
-			Restart();
-
-		/* A button */
-		if (buttons & WPAD_BUTTON_A)
-			break;
+	}
+	else
+	{
+		fdev = &fdevList[gConfig.fatDeviceIndex];
 	}
 
 	printf("[+] Mounting device, please wait...");
@@ -311,6 +337,7 @@ void Menu_FatDevice(void)
 	return;
 
 err:
+	WiiLightControl (WII_LIGHT_OFF);
 	printf("\n");
 	printf("    Press any button to continue...\n");
 
@@ -331,39 +358,46 @@ void Menu_NandDevice(void)
 	}
 
 	/* Select source device */
-	for (;;) {
-		/* Clear console */
-		Con_Clear();
+	if (gConfig.nandDeviceIndex < 0)
+	{
+		for (;;) {
+			/* Clear console */
+			Con_Clear();
 
-		/* Selected device */
-		ndev = &ndevList[selected];
+			/* Selected device */
+			ndev = &ndevList[selected];
 
-		printf("\t>> Select NAND emulator device: < %s >\n\n", ndev->name);
+			printf("\t>> Select NAND emulator device: < %s >\n\n", ndev->name);
 
-		printf("\t   Press LEFT/RIGHT to change the selected device.\n\n");
+			printf("\t   Press LEFT/RIGHT to change the selected device.\n\n");
 
-		printf("\t   Press A button to continue.\n");
-		printf("\t   Press HOME button to restart.\n\n");
+			printf("\t   Press A button to continue.\n");
+			printf("\t   Press HOME button to restart.\n\n");
 
-		u32 buttons = WaitButtons();
+			u32 buttons = WaitButtons();
 
-		/* LEFT/RIGHT buttons */
-		if (buttons & WPAD_BUTTON_LEFT) {
-			if ((--selected) <= -1)
-				selected = (NB_NAND_DEVICES - 1);
+			/* LEFT/RIGHT buttons */
+			if (buttons & WPAD_BUTTON_LEFT) {
+				if ((--selected) <= -1)
+					selected = (NB_NAND_DEVICES - 1);
+			}
+			if (buttons & WPAD_BUTTON_RIGHT) {
+				if ((++selected) >= NB_NAND_DEVICES)
+					selected = 0;
+			}
+
+			/* HOME button */
+			if (buttons & WPAD_BUTTON_HOME)
+				Restart();
+
+			/* A button */
+			if (buttons & WPAD_BUTTON_A)
+				break;
 		}
-		if (buttons & WPAD_BUTTON_RIGHT) {
-			if ((++selected) >= NB_NAND_DEVICES)
-				selected = 0;
-		}
-
-		/* HOME button */
-		if (buttons & WPAD_BUTTON_HOME)
-			Restart();
-
-		/* A button */
-		if (buttons & WPAD_BUTTON_A)
-			break;
+	}
+	else
+	{
+		ndev = &ndevList[gConfig.nandDeviceIndex];
 	}
 
 	/* No NAND device */
@@ -464,10 +498,12 @@ void Menu_WadManage(fatFile *file, char *inFilePath)
 	printf("[+] %s WAD, please wait...\n", (!mode) ? "Installing" : "Uninstalling");
 
 	/* Do install/uninstall */
+	WiiLightControl (WII_LIGHT_ON);
 	if (!mode)
 		Wad_Install(fp);
 	else
 		Wad_Uninstall(fp);
+	WiiLightControl (WII_LIGHT_OFF);
 
 out:
 	/* Close file */
@@ -865,4 +901,25 @@ u32 WaitButtons(void)
 
 	return buttons;
 } // WaitButtons
+
+
+void WiiLightControl (int state)
+{
+	switch (state)
+	{
+		case WII_LIGHT_ON:
+			/* Turn on Wii Light */
+			WIILIGHT_SetLevel(255);
+			WIILIGHT_TurnOn();
+			break;
+
+		case WII_LIGHT_OFF:
+		default:
+			/* Turn off Wii Light */
+			WIILIGHT_SetLevel(0);
+			WIILIGHT_TurnOn();
+			WIILIGHT_Toggle();
+			break;
+	}
+} // WiiLightControl
 
