@@ -61,11 +61,11 @@ void Sys_Shutdown(void)
 
 void Sys_LoadMenu(void)
 {
-	u32 *stub = (u32 *)0x80001800;
+	//u32 *stub = (u32 *)0x80001800;  // This check may be invalid now
 
 	/* Homebrew Channel stub */
-	if (*stub)
-		exit(0);
+	//if (*stub)
+	//	exit(0); // wiiNinja: For some reason, this crashes when running from SM; ok when run from HBC
 
 	/* Return to the Wii system menu */
 	SYS_ResetSystem(SYS_RETURNTOMENU, 0, 0);

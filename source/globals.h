@@ -43,6 +43,8 @@ typedef struct
 	int cIOSVersion;
 	int fatDeviceIndex;
 	int nandDeviceIndex;
+	char disclaimer;
+	char music;
 } CONFIG;
 
 

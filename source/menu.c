@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <malloc.h>
+#include <unistd.h>
 #include <ogcsys.h>
 #include <wiilight.h>
 
@@ -13,12 +14,11 @@
 #include "utils.h"
 #include "video.h"
 #include "wad.h"
-#include "wpad.h"
 #include <ogc/pad.h>
+#include "wpad.h"
 #include "globals.h"
 
 /* FAT device list  */
-//static fatDevice fdevList[] = {
 fatDevice fdevList[] = {
 	{ "sd",		"Wii SD Slot",			&__io_wiisd },
 	{ "usb",	"USB Mass Storage Device",	&__io_usbstorage },
@@ -28,35 +28,28 @@ fatDevice fdevList[] = {
 };
 
 /* NAND device list */
-//static nandDevice ndevList[] = {
 nandDevice ndevList[] = {
 	{ "Disable",				0,	0x00,	0x00 },
 	{ "SD/SDHC Card",			1,	0xF0,	0xF1 },
 	{ "USB 2.0 Mass Storage Device",	2,	0xF2,	0xF3 },
 };
 
+// Flag to allow user to escape to the top of the menu loop to manually set everything again
+bool gEscapeToTop;
 
 /* FAT device */
 static fatDevice  *fdev = NULL;
 static nandDevice *ndev = NULL;
 
-// wiiNinja: Define a buffer holding the previous path names as user
-// traverses the directory tree. Max of 10 levels is define at this point
-static u8 gDirLevel = 0;
-static char gDirList [MAX_DIR_LEVELS][MAX_FILE_PATH_LEN];
-static s32  gSeleted[MAX_DIR_LEVELS];
-static s32  gStart[MAX_DIR_LEVELS];
-
 /* Macros */
 #define NB_FAT_DEVICES		(sizeof(fdevList) / sizeof(fatDevice))
 #define NB_NAND_DEVICES		(sizeof(ndevList) / sizeof(nandDevice))
 
+/* Constants */
+#define CIOS_VERSION		249
+
 // Local prototypes: wiiNinja
 void WaitPrompt (char *prompt);
-int PushCurrentDir(char *dirStr, s32 Selected, s32 Start);
-char *PopCurrentDir(s32 *Selected, s32 *Start);
-bool IsListFull (void);
-char *PeekCurrentDir (void);
 u32 WaitButtons(void);
 u32 Pad_GetButtons(void);
 void WiiLightControl (int state);
@@ -73,45 +66,39 @@ s32 __Menu_IsGreater(const void *p1, const void *p2)
 	return (n1 > n2) ? 1 : -1;
 }
 
-
 s32 __Menu_EntryCmp(const void *p1, const void *p2)
 {
 	fatFile *f1 = (fatFile *)p1;
 	fatFile *f2 = (fatFile *)p2;
 
-	/* Compare entries */ // wiiNinja: Include directory
-    if ((f1->filestat.st_mode & S_IFDIR) && !(f2->filestat.st_mode & S_IFDIR))
-        return (-1);
-    else if (!(f1->filestat.st_mode & S_IFDIR) && (f2->filestat.st_mode & S_IFDIR))
-        return (1);
-    else
-        return strcmp(f1->filename, f2->filename);
+	s32 ret;
+
+	/* Compare attributes */
+	ret = (f1->filestat.st_mode - f2->filestat.st_mode);
+	if (ret)
+		return ret;
+
+	/* Compare names */
+	return strcmp(f1->filename, f2->filename);
 }
 
-char gFileName[MAX_FILE_PATH_LEN];
-s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
+s32 __Menu_RetrieveList(fatFile **outbuf, u32 *outlen)
 {
 	fatFile  *buffer = NULL;
 	DIR_ITER *dir    = NULL;
 
 	struct stat filestat;
 
-	//char dirpath[256], filename[768];
+	char filename[768];
 	u32  cnt;
 
-	/* Generate dirpath */
-	//sprintf(dirpath, "%s:" WAD_DIRECTORY, fdev->mount);
-
 	/* Open directory */
-	dir = diropen(inPath);
+    dir = diropen(".");
 	if (!dir)
 		return -1;
 
 	/* Count entries */
-	for (cnt = 0; !dirnext(dir, gFileName, &filestat);) {
-		// if (!(filestat.st_mode & S_IFDIR)) // wiiNinja
-			cnt++;
-	}
+	for(cnt = 0; !dirnext(dir, filename, &filestat); cnt++);
 
 	if (cnt > 0) {
 		/* Allocate memory */
@@ -125,34 +112,29 @@ s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
 		dirreset(dir);
 
 		/* Get entries */
-		for (cnt = 0; !dirnext(dir, gFileName, &filestat);)
+		for (cnt = 0; !dirnext(dir, filename, &filestat);) 
 		{
 			bool addFlag = false;
 			
-			if (filestat.st_mode & S_IFDIR)  // wiiNinja
+			if ((filestat.st_mode & S_IFDIR) && (strcmp (filename, ".") != 0))  // wiiNinja
             {
                 // Add only the item ".." which is the previous directory
                 // AND if we're not at the root directory
-                if ((strcmp (gFileName, "..") == 0) && (gDirLevel > 1))
-                    addFlag = true;
-                else if (strcmp (gFileName, ".") != 0)
+                //if ((strcmp (filename, "..") == 0) && (gDirLevel > 1))
+                //    addFlag = true;
+                //else if (strcmp (filename, ".") != 0)
+				// if (strcmp (filename, ".") != 0)
                     addFlag = true;
             }
-            else
-			{
-				if(strlen(gFileName)>4)
-				{
-					if(!stricmp(gFileName+strlen(gFileName)-4, ".wad"))
-						addFlag = true;
-				}
-			}
+            else if((strlen(filename)>4) && (!stricmp(filename+strlen(filename)-4, ".wad")))
+				addFlag = true;
 
             if (addFlag == true)
             {
 				fatFile *file = &buffer[cnt++];
 
 				/* File name */
-				strcpy(file->filename, gFileName);
+				strcpy(file->filename, filename);
 
 				/* File stats */
 				file->filestat = filestat;
@@ -173,16 +155,31 @@ s32 __Menu_RetrieveList(char *inPath, fatFile **outbuf, u32 *outlen)
 	return 0;
 }
 
+s32 __Menu_ChangeDir(fatFile *file, fatFile **outbuf, u32 *outlen)
+{
+	/* Change directory */
+	Fat_ChangeDir(file->filename);
+
+	/* Free memory */
+	if (*outbuf)
+		free(*outbuf);
+
+	/* Retrieve list */
+	return __Menu_RetrieveList(outbuf, outlen);
+}
+
 
 void Menu_SelectIOS(void)
 {
 	u8 *iosVersion = NULL;
 	u32 iosCnt;
-	u8 tmpVersion;
-
 	u32 cnt;
 	s32 ret, selected = 0;
 	bool found = false;
+    u8 tmpVersion;
+
+	if (gEscapeToTop == true)
+		return;
 
 	/* Get IOS versions */
 	ret = Title_GetIOSVersions(&iosVersion, &iosCnt);
@@ -207,7 +204,7 @@ void Menu_SelectIOS(void)
 		u8 version = iosVersion[cnt];
 
 		/* Custom IOS available */
-		//if (version == CIOS_VERSION)
+		//if (version == CIOS_VERSION) 
 		if (version == tmpVersion)
 		{
 			selected = cnt;
@@ -251,6 +248,13 @@ void Menu_SelectIOS(void)
 			if (buttons & WPAD_BUTTON_HOME)
 				Restart();
 
+			/* Button 1 means escape to top */
+			if (buttons & WPAD_BUTTON_1)
+			{
+				gEscapeToTop = true;
+				break;
+			}
+
 			/* A button */
 			if (buttons & WPAD_BUTTON_A)
 				break;
@@ -264,6 +268,9 @@ void Menu_SelectIOS(void)
 		/* Shutdown subsystems */
 		Wpad_Disconnect();
 
+		printf("\tLoading IOS%d...\n", version);
+		sleep(1);
+
 		/* Load IOS */
 		ret = IOS_ReloadIOS(version);
 
@@ -274,8 +281,12 @@ void Menu_SelectIOS(void)
 
 void Menu_FatDevice(void)
 {
-	s32 ret, selected = 0;
+	s32 selected = 0;
+	s32 ret;
 
+	if (gEscapeToTop == true)
+		return;
+		
 	/* Unmount FAT device */
 	if (fdev)
 		Fat_Unmount(fdev);
@@ -313,6 +324,13 @@ void Menu_FatDevice(void)
 			if (buttons & WPAD_BUTTON_HOME)
 				Restart();
 
+			// Button 1 means to escape to top
+			if (buttons & WPAD_BUTTON_1)
+			{
+				gEscapeToTop = true;
+				break;
+			}
+
 			/* A button */
 			if (buttons & WPAD_BUTTON_A)
 				break;
@@ -323,16 +341,19 @@ void Menu_FatDevice(void)
 		fdev = &fdevList[gConfig.fatDeviceIndex];
 	}
 
-	printf("[+] Mounting device, please wait...");
-	fflush(stdout);
+	if (gEscapeToTop == false)
+	{
+		printf("[+] Mounting device, please wait...");
+		fflush(stdout);
 
-	/* Mount FAT device */
-	ret = Fat_Mount(fdev);
-	if (ret < 0) {
-		printf(" ERROR! (ret = %d)\n", ret);
-		goto err;
-	} else
-		printf(" OK!\n");
+		/* Mount FAT device */
+		ret = Fat_Mount(fdev);
+		if (ret < 0) {
+			printf(" ERROR! (ret = %d)\n", ret);
+			goto err;
+		} else
+			printf(" OK!\n");
+	}
 
 	return;
 
@@ -349,7 +370,8 @@ err:
 
 void Menu_NandDevice(void)
 {
-	s32 ret, selected = 0;
+	s32 selected = 0;
+	s32 ret;
 
 	/* Disable NAND emulator */
 	if (ndev) {
@@ -360,6 +382,7 @@ void Menu_NandDevice(void)
 	/* Select source device */
 	if (gConfig.nandDeviceIndex < 0)
 	{
+		/* Select source device */
 		for (;;) {
 			/* Clear console */
 			Con_Clear();
@@ -390,6 +413,13 @@ void Menu_NandDevice(void)
 			if (buttons & WPAD_BUTTON_HOME)
 				Restart();
 
+			// Button 1 means to escape to top
+			if (buttons & WPAD_BUTTON_1)
+			{
+				gEscapeToTop = true;
+				break;
+			}
+
 			/* A button */
 			if (buttons & WPAD_BUTTON_A)
 				break;
@@ -400,31 +430,35 @@ void Menu_NandDevice(void)
 		ndev = &ndevList[gConfig.nandDeviceIndex];
 	}
 
-	/* No NAND device */
-	if (!ndev->mode)
-		return;
+	if (gEscapeToTop == false)
+	{
+		/* No NAND device */
+		if (!ndev->mode)
+			return;
 
-	printf("[+] Enabling NAND emulator...");
-	fflush(stdout);
+		printf("[+] Enabling NAND emulator...");
+		fflush(stdout);
 
-	/* Mount NAND device */
-	ret = Nand_Mount(ndev);
-	if (ret < 0) {
-		printf(" ERROR! (ret = %d)\n", ret);
-		goto err;
+		/* Mount NAND device */
+		ret = Nand_Mount(ndev);
+		if (ret < 0) {
+			printf(" ERROR! (ret = %d)\n", ret);
+			goto err;
+		}
+
+		/* Enable NAND emulator */
+		ret = Nand_Enable(ndev);
+		if (ret < 0) {
+			printf(" ERROR! (ret = %d)\n", ret);
+			goto err;
+		} else
+			printf(" OK!\n");
 	}
-
-	/* Enable NAND emulator */
-	ret = Nand_Enable(ndev);
-	if (ret < 0) {
-		printf(" ERROR! (ret = %d)\n", ret);
-		goto err;
-	} else
-		printf(" OK!\n");
 
 	return;
 
 err:
+	WiiLightControl (WII_LIGHT_OFF);
 	printf("\n");
 	printf("    Press any button to continue...\n");
 
@@ -434,15 +468,12 @@ err:
 	Menu_NandDevice();
 }
 
-char gTmpFilePath[MAX_FILE_PATH_LEN];
-void Menu_WadManage(fatFile *file, char *inFilePath)
+void Menu_WadManage(fatFile *file)
 {
 	FILE *fp  = NULL;
 
-	//char filepath[128];
-	f32  filesize;
-
-	u32  mode = 0;
+	f32 filesize;
+	u32 mode = 0;
 
 	/* File size in megabytes */
 	filesize = (file->filestat.st_size / MB_SIZE);
@@ -483,12 +514,8 @@ void Menu_WadManage(fatFile *file, char *inFilePath)
 	printf("[+] Opening \"%s\", please wait...", file->filename);
 	fflush(stdout);
 
-	/* Generate filepath */
-	// sprintf(filepath, "%s:" WAD_DIRECTORY "/%s", fdev->mount, file->filename);
-	sprintf(gTmpFilePath, "%s/%s", inFilePath, file->filename); // wiiNinja
-
 	/* Open WAD */
-	fp = fopen(gTmpFilePath, "rb");
+	fp = fopen(file->filename, "rb");
 	if (!fp) {
 		printf(" ERROR!\n");
 		goto out;
@@ -519,58 +546,22 @@ out:
 
 void Menu_WadList(void)
 {
-	char str [100];
 	fatFile *fileList = NULL;
 	u32      fileCnt;
-	s32 ret, selected = 0, start = 0;
-    char *tmpPath = malloc (MAX_FILE_PATH_LEN);
 
-    // wiiNinja: check for malloc error
-    if (tmpPath == NULL)
-    {
-        ret = -999; // What am I gonna use here?
-		printf(" ERROR! Out of memory (ret = %d)\n", ret);
-        return;
-    }
+	s32 selected = 0, start = 0;
+	s32 ret;
 
 	printf("[+] Retrieving file list...");
 	fflush(stdout);
-	
-	gDirLevel = 0;
 
-    // wiiNinja: The root is always the primary folder
-    // But if the user has a /wad directory, just go there. This makes
-    // both sides of the argument win
-	sprintf(tmpPath, "%s:" WAD_DIRECTORY, fdev->mount);
-    PushCurrentDir(tmpPath,0,0);
-	//if (strcmp (WAD_DIRECTORY, WAD_ROOT_DIRECTORY) != 0)
-	if (strcmp (WAD_DIRECTORY, gConfig.startupPath) != 0)
-	{
-        // If the directory can be successfully opened, it must exists
-        //DIR_ITER *tmpDirPtr = NULL;
-        //tmpDirPtr = diropen(WAD_ROOT_DIRECTORY);
-        //if (tmpDirPtr)
-        //{
-		//	dirclose (tmpDirPtr);
+	// Change to configured startupPath
+	if (gConfig.startupPath[0] != 0)
+		Fat_ChangeDir(gConfig.startupPath);
 
-            // Now push the /wad directory as the current operating folder
-            //sprintf(tmpPath, "%s:" WAD_ROOT_DIRECTORY, fdev->mount);
-			sprintf(tmpPath, "%s:%s", fdev->mount, gConfig.startupPath);
-			//printf ("\nThe final startupPath is: %s\n", tmpPath);
-			//WaitButtons ();
-            PushCurrentDir(tmpPath,0,0); // wiiNinja
-        //}
-	}
 
 	/* Retrieve filelist */
-getList:
-    if (fileList)
-    {
-        free (fileList);
-        fileList = NULL;
-    }
-
-	ret = __Menu_RetrieveList(tmpPath, &fileList, &fileCnt);
+	ret = __Menu_RetrieveList(&fileList, &fileCnt);
 	if (ret < 0) {
 		printf(" ERROR! (ret = %d)\n", ret);
 		goto err;
@@ -578,12 +569,11 @@ getList:
 
 	/* No files */
 	if (!fileCnt) {
-		printf(" No files found!\n");
+		printf(" No files/directories found!\n");
 		goto err;
 	}
 
-	for (;;) 
-	{
+	for (;;) {
 		u32 cnt;
 		s32 index;
 
@@ -591,48 +581,36 @@ getList:
 		Con_Clear();
 
 		/** Print entries **/
-		cnt = strlen(tmpPath);
-		if(cnt>30)
-			index = cnt-30;
-		else
-			index = 0;
-
-		printf("[+] WAD files on [%s]:\n\n", tmpPath+index);
+		printf("[++] Filebrowser:\n\n");
 
 		/* Print entries */
-		for (cnt = start; cnt < fileCnt; cnt++) 
-		{
-			fatFile *file     = &fileList[cnt];
-			f32      filesize = file->filestat.st_size / MB_SIZE;
+		for (cnt = start; cnt < fileCnt; cnt++) {
+			fatFile *file  = &fileList[cnt];
+			f32      fsize = (file->filestat.st_size / MB_SIZE);
 
 			/* Entries per page limit */
 			if ((cnt - start) >= ENTRIES_PER_PAGE)
 				break;
 
-			strncpy(str, file->filename, 48);
-			str[48]=0;
-
 			/* Print filename */
-			//printf("\t%2s %s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", file->filename, filesize);
-            if (file->filestat.st_mode & S_IFDIR) // wiiNinja
-				printf("\t%2s [%s]\n", (cnt == selected) ? ">>" : "  ", str);
-            else
-                printf("\t%2s %s (%.2f MB)\n", (cnt == selected) ? ">>" : "  ", str, filesize);
+			printf("\t%2s %-42s", (cnt == selected) ? ">>" : "  ", file->filename);
 
+			/* Print stats */
+			if (file->filestat.st_mode & S_IFDIR)
+				printf(" (DIR)\n");
+			else
+				printf(" (%.2f MB)\n", fsize);
 		}
 
 		printf("\n");
 
-		printf("[+] Press A button to (un)install a WAD file.\n");
-		if(gDirLevel>1)
-			printf("    Press B button to go up-level DIR");
-		else
-			printf("    Press B button to select a storage device");
+		printf("    Press A button to open a directory or a WAD file.\n");
+		printf("    Press B button to select the storage device.\n");
 
 		/** Controls **/
 		u32 buttons = WaitButtons();
 
-		/* DPAD buttons */
+		/* D-PAD buttons */
 		if (buttons & (WPAD_BUTTON_UP | WPAD_BUTTON_LEFT)) {
 			selected -= (buttons & WPAD_BUTTON_LEFT) ? ENTRIES_PER_PAGE : 1;
 
@@ -650,72 +628,44 @@ getList:
 		if (buttons & WPAD_BUTTON_HOME)
 			Restart();
 
-		/* A button */
-		if (buttons & WPAD_BUTTON_A)
+		// If "1" is pressed, go to the top level menu
+		if (buttons & WPAD_BUTTON_1)
 		{
-			fatFile *tmpFile = &fileList[selected];
-            char *tmpCurPath;
-            if (tmpFile->filestat.st_mode & S_IFDIR) // wiiNinja
-            {
-                if (strcmp (tmpFile->filename, "..") == 0)
-                {
-					selected = 0;
-					start = 0;
+			// Set flag to escape to the top
+			gEscapeToTop = true;
 
-					// Previous dir
-                    tmpCurPath = PopCurrentDir(&selected, &start);
-                    if (tmpCurPath != NULL)
-                        sprintf(tmpPath, "%s", tmpCurPath);
-						
-                    goto getList;
-                }
-                else if (IsListFull () == true)
-                {
-                    WaitPrompt ("Maximum number of directory levels is reached.\n");
-                }
-                else
-                {
-                    tmpCurPath = PeekCurrentDir ();
-                    if (tmpCurPath != NULL)
-                    {
-						if(gDirLevel>1)
-							sprintf(tmpPath, "%s/%s", tmpCurPath, tmpFile->filename);
-						else
-							sprintf(tmpPath, "%s%s", tmpCurPath, tmpFile->filename);
-                    }
-                    // wiiNinja: Need to PopCurrentDir
-                    PushCurrentDir (tmpPath, selected, start);
-					selected = 0;
-					start = 0;
-                    goto getList;
-                }
-            }
-            else
-            {
-                tmpCurPath = PeekCurrentDir ();
-                if (tmpCurPath != NULL)
-                    Menu_WadManage(tmpFile, tmpCurPath);
-            }
+			// Make the user select everything all over again
+			gConfig.cIOSVersion = CIOS_VERSION_INVALID;
+			gConfig.nandDeviceIndex = NAND_DEVICE_INDEX_INVALID;
+			gConfig.fatDeviceIndex = FAT_DEVICE_INDEX_INVALID;
+			// free (tmpPath);
+			return;
+		}
+
+		/* A button */
+		if (buttons & WPAD_BUTTON_A) {
+			fatFile *file = &fileList[selected];
+
+			/* Manage entry */
+			if (file->filestat.st_mode & S_IFDIR) {
+				/* Change directory */
+				ret = __Menu_ChangeDir(file, &fileList, &fileCnt);
+				if (ret < 0) {
+					printf("\n");
+					printf("[+] ERROR: Could not change the directory! (ret = %d)\n", ret);
+
+					break;
+				}
+
+				/* Reset cursor */
+				selected = 0;
+			} else
+				Menu_WadManage(file);
 		}
 
 		/* B button */
 		if (buttons & WPAD_BUTTON_B)
-		{
-			if(gDirLevel<=1)
-			{
-				return;
-			}
-
-			char *tmpCurPath;
-			selected = 0;
-			start = 0;
-			// Previous dir
-			tmpCurPath = PopCurrentDir(&selected, &start);
-			if (tmpCurPath != NULL)
-				sprintf(tmpPath, "%s", tmpCurPath);
-			goto getList;
-			//return;
-		}
+			return;
 
 		/** Scrolling **/
 		/* List scrolling */
@@ -731,8 +681,6 @@ err:
 	printf("\n");
 	printf("    Press any button to continue...\n");
 
-	free (tmpPath);
-	
 	/* Wait for button */
 	WaitButtons();
 }
@@ -740,77 +688,35 @@ err:
 
 void Menu_Loop(void)
 {
-	u8 iosVersion;
+	//u8 iosVersion;
+	u8 iosVersion = 0;
 
-	/* Select IOS menu */
-	Menu_SelectIOS();
+	while (1)
+	{
+		gEscapeToTop = false;
 
-	/* Retrieve IOS version */
-	iosVersion = IOS_GetVersion();
+		/* Select IOS menu */
+		Menu_SelectIOS();
 
-	/* NAND device menu */
-	if (iosVersion == CIOS_VERSION)
-		Menu_NandDevice();
+		/* Retrieve IOS version */
+		if (gEscapeToTop == false)
+			iosVersion = IOS_GetVersion();
 
-	for (;;) {
-		/* FAT device menu */
-		Menu_FatDevice();
+		/* NAND device menu */
+		if (gEscapeToTop == false)
+			if (iosVersion == CIOS_VERSION)
+				Menu_NandDevice();
 
-		/* WAD list menu */
-		Menu_WadList();
+		//for (;;) {
+		while (gEscapeToTop == false)
+		{
+			/* FAT device menu */
+			Menu_FatDevice();
+
+			/* WAD list menu */
+			Menu_WadList();
+		}
 	}
-}
-
-// Start of wiiNinja's added routines
-
-int PushCurrentDir (char *dirStr, s32 Selected, s32 Start)
-{
-    int retval = 0;
-
-    // Store dirStr into the list and increment the gDirLevel
-    // WARNING: Make sure dirStr is no larger than MAX_FILE_PATH_LEN
-    if (gDirLevel < MAX_DIR_LEVELS)
-    {
-        strcpy (gDirList [gDirLevel], dirStr);
-		gSeleted[gDirLevel]=Selected;
-		gStart[gDirLevel]=Start;
-        gDirLevel++;
-        //if (gDirLevel >= MAX_DIR_LEVELS)
-        //    gDirLevel = 0;
-    }
-    else
-        retval = -1;
-
-    return (retval);
-}
-
-char *PopCurrentDir(s32 *Selected, s32 *Start)
-{
-	if (gDirLevel > 1)
-        gDirLevel--;
-    else
-        gDirLevel = 0;
-
-	*Selected = gSeleted[gDirLevel];
-	*Start = gStart[gDirLevel];
-	return PeekCurrentDir();
-}
-
-bool IsListFull (void)
-{
-    if (gDirLevel < MAX_DIR_LEVELS)
-        return (false);
-    else
-        return (true);
-}
-
-char *PeekCurrentDir (void)
-{
-    // Return the current path
-    if (gDirLevel > 0)
-        return (gDirList [gDirLevel-1]);
-    else
-        return (NULL);
 }
 
 void WaitPrompt (char *prompt)
@@ -896,6 +802,16 @@ u32 WaitButtons(void)
         {
             //printf ("Button START on the GC controller\n");
             buttons |= WPAD_BUTTON_HOME;
+        }
+		else if(buttonsGC & PAD_BUTTON_Y)
+        {
+            //printf ("Button Y on the GC controller\n");
+            buttons |= WPAD_BUTTON_1;
+        }
+		else if(buttonsGC & PAD_BUTTON_X)
+        {
+            //printf ("Button X on the GC controller\n");
+            buttons |= WPAD_BUTTON_2;
         }
     }
 

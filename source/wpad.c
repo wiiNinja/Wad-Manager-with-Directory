@@ -3,7 +3,6 @@
 
 #include "sys.h"
 #include "wpad.h"
-//#include "wkb.h"
 
 /* Constants */
 #define MAX_WIIMOTES	4

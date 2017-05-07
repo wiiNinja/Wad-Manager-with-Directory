@@ -29,3 +29,10 @@ FatDevice=sd
 ; NANDDevice: Disable SD USB
 ; Note that WM will prompt for NAND device only if you selected cIOS=249
 NANDDevice=Disable
+
+; Disclaimer: 0 or 1. Default is 1
+;
+Disclaimer=1
+
+; Music: 0 or 1. Default is 1
+Music=1

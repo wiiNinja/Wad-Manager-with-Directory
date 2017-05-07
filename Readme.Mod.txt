@@ -48,7 +48,7 @@ Sorg.
 7/29/2009: v1.5.Mod2
 
 * Merged Waninkoko's v1.5
-* Added stuff password
+* Added password
 * Added startupPath
 * Added handling from wm_config.txt in sd:/wad
 
@@ -56,3 +56,10 @@ Sorg.
 
 * Added to wm_config.txt: cIOS select, Wad Source path, and Nand source path
 * Added wiilight mod by mariomaniac33
+
+------------------------------------------------------
+8/16/2010: v1.7.Mod1
+
+* Just took what Wanin had for v1.7 and added the stuff described above.
+* Added "Music" and "Disclaimer" options in wm_config.txt
+

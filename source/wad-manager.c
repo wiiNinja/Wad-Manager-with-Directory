@@ -2,13 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ogcsys.h>
-#include <malloc.h>
 #include <ctype.h>
 #include <wiilight.h>
 
 #include "gui.h"
 #include "menu.h"
 #include "restart.h"
+#include "sound.h"
 #include "sys.h"
 #include "video.h"
 #include "wpad.h"
@@ -35,13 +35,16 @@ void CheckPassword (void)
 	char curPassword [11]; // Max 10 characters password, NULL terminated
 	int count = 0;
 
+	// Clear screen
+	Con_Clear();
+
 	if (strlen (gConfig.password) == 0)
 		return;
 
 	// Ask user for a password. Press "B" to restart Wii
-	printf("[+] [Enter Password to Continue]:\n\n");
+	printf("[+] [Enter Password then A to Continue]:\n\n");
 
-	printf(">>  Press A to continue.\n");
+	// printf(">>  Press A to continue.\n");
 	printf(">>  Press B button to restart your Wii.\n");
 
 	/* Wait for user answer */
@@ -127,7 +130,6 @@ void Disclaimer(void)
 
 	/* Wait for user answer */
 	for (;;) {
-		//u32 buttons = Wpad_WaitButtons();
 		u32 buttons = WaitButtons();
 
 		/* A button */
@@ -154,13 +156,11 @@ int main(int argc, char **argv)
 	/* Draw background */
 	Gui_DrawBackground();
 
-	/* Initialize Wiimote and GC Controller */
+	// Initialize Wiimote
 	Wpad_Init();
 	PAD_Init ();
 	WIILIGHT_Init();
 
-	/* Print disclaimer */
-	//Disclaimer();
 	
 	// Set the defaults
 	SetDefaultConfig ();
@@ -168,19 +168,31 @@ int main(int argc, char **argv)
 	// Read the config file
 	ReadConfigFile (WM_CONFIG_FILE_PATH);
 
+	// Initialize sound
+	if (gConfig.music != 0)
+	{
+		Sound_Init();
+		// Play sound
+		Sound_Play();
+	}
+
+	// Print disclaimer
+	if (gConfig.disclaimer != 0)
+		Disclaimer();
+
 	// Check password
 	CheckPassword ();
 
-	/* Menu loop */
+	// Menu loop
 	Menu_Loop();
 
-	/* Restart Wii */
+	// Restart Wii
 	Restart_Wait();
 
 	return 0;
 }
 
-
+// Read from sd:/wm_config.txt and parse the params
 int ReadConfigFile (char *configFilePath)
 {
     int retval = 0;
@@ -194,7 +206,10 @@ int ReadConfigFile (char *configFilePath)
 
 	fatDevice *fdev = &fdevList[0];
 	s32 ret = Fat_Mount(fdev);
-	
+
+	// Initialize to no startupPath
+	gConfig.startupPath[0] = 0;
+
 	if (ret < 0) 
 	{
 		printf(" ERROR! (ret = %d)\n", ret);
@@ -214,7 +229,7 @@ int ReadConfigFile (char *configFilePath)
 			{
 				if (fgets (tmpStr, MAX_FILE_PATH_LEN, fptr) == NULL)
 					done = 1;
-				else if (isalpha(tmpStr[0]))
+				else if (isalpha((int)tmpStr[0]))
 				{
 					// Get the password
 					if (strncmp (tmpStr, "Password", 8) == 0)
@@ -273,6 +288,17 @@ int ReadConfigFile (char *configFilePath)
 							}
 						}
 					}
+					// Disclaimer
+					else if (strncmp (tmpStr, "Disclaimer", 10) == 0)
+					{
+						// Disclaimer
+						gConfig.disclaimer = (u8)GetIntParam (tmpStr);
+					}
+					// Music
+					else if (strncmp (tmpStr, "Music", 5) == 0)
+					{
+						gConfig.music = (u8)GetIntParam (tmpStr);
+					}
 				}
 			} // EndWhile
 			
@@ -294,7 +320,7 @@ int ReadConfigFile (char *configFilePath)
 	return (retval);
 } // ReadConfig
 
-
+// Set the default params
 void SetDefaultConfig (void)
 {
 	// Default password is NULL or no password
@@ -306,10 +332,11 @@ void SetDefaultConfig (void)
 	gConfig.cIOSVersion = CIOS_VERSION_INVALID;            // Means that user has to select later
 	gConfig.fatDeviceIndex = FAT_DEVICE_INDEX_INVALID;     // Means that user has to select
 	gConfig.nandDeviceIndex = NAND_DEVICE_INDEX_INVALID;   // Means that user has to select
+	gConfig.disclaimer = 1;
 
 } // SetDefaultConfig
 
-
+// Get the startup path from an input string
 int GetStartupPath (char *startupPath, char *inputStr)
 {
 	int i = 0;
@@ -340,6 +367,7 @@ int GetStartupPath (char *startupPath, char *inputStr)
 	return (0);
 } // GetStartupPath
 
+// Get an integer from the input string
 int GetIntParam (char *inputStr)
 {
 	int retval = 0;
@@ -355,14 +383,14 @@ int GetIntParam (char *inputStr)
 	i++;
 	
 	// Get to the first alpha numeric character
-	while ((isdigit(inputStr [i]) == 0) && (i < len))
+	while ((isdigit((int)inputStr [i]) == 0) && (i < len))
 	{
 		i++;
 	}
 
 	// Get the string param
 	int outCount = 0;
-	while ((isdigit(inputStr [i])) && (i < len) && (outCount < 40))
+	while ((isdigit((int)inputStr [i])) && (i < len) && (outCount < 40))
 	{
 		outParam [outCount++] = inputStr [i++];
 	}
@@ -372,7 +400,7 @@ int GetIntParam (char *inputStr)
 	return (retval);
 } // GetIntParam
 
-
+// Get a string parameter from the input string
 int GetStringParam (char *outParam, char *inputStr, int maxChars)
 {
 	int i = 0;
@@ -386,14 +414,14 @@ int GetStringParam (char *outParam, char *inputStr, int maxChars)
 	i++;
 	
 	// Get to the first alpha character
-	while ((isalpha(inputStr [i]) == 0) && (i < len))
+	while ((isalpha((int)inputStr [i]) == 0) && (i < len))
 	{
 		i++;
 	}
 	
 	// Get the string param
 	int outCount = 0;
-	while ((isalnum(inputStr [i])) && (i < len) && (outCount < maxChars))
+	while ((isalnum((int)inputStr [i])) && (i < len) && (outCount < maxChars))
 	{
 		outParam [outCount++] = inputStr [i++];
 	}

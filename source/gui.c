@@ -5,6 +5,11 @@
 #include "video.h"
 
 /* Constants */
+//#define CONSOLE_XCOORD		52
+//#define CONSOLE_YCOORD		118
+//#define CONSOLE_WIDTH		540
+//#define CONSOLE_HEIGHT		280
+
 #define CONSOLE_XCOORD		48
 #define CONSOLE_YCOORD		94
 #define CONSOLE_WIDTH		544
